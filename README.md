@@ -9,4 +9,10 @@ put the refreence images in "ref images" sorted in the same order of the refrenc
 example: "ref images/0.jpg" is the first name in the refrence dictionay
 
 # version 1
-using SSD ResNet100 and FaceNet built on ResNet100, avg FPS~7
+using SSD ResNet100 and FaceNet built on Inception V1, avg FPS~7
+
+#version 2
+using YOLO and FaceNet built on Inception V1, avg FPS~11.
+
+#known bug for now: 
+to generate ref embeddings you need to put the images both in the ref folder AND one directory up it (right next to the model files)
