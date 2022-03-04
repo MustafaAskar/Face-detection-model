@@ -15,4 +15,5 @@ using SSD ResNet100 and FaceNet built on Inception V1, avg FPS~7
 using YOLO and FaceNet built on Inception V1, avg FPS~11.
 
 # known bug for now: 
+~~code crash when detect multi faces in the same frame~~
 to generate ref embeddings you need to put the images both in the ref folder AND one directory up it (right next to the model files)
