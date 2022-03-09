@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[71]:
+# In[1]:
 
 
 #import libraries
@@ -27,7 +27,7 @@ from scipy.spatial import distance
 from keras.models import load_model
 
 
-# In[72]:
+# In[2]:
 
 
 #load FaceNet model
@@ -44,19 +44,12 @@ ln = [ln[i - 1] for i in YOLO.getUnconnectedOutLayers()]
 image_size = 160
 
 
-# In[73]:
+# In[3]:
 
 
 def prewhiten(x):
     #predefine some varabiles
-    size = x.size
-    axis = (0, 1, 2)
-    
-    #standardization
-    mean = np.mean(x, axis=axis, keepdims=True)
-    std = np.std(x, axis=axis, keepdims=True)
-    std_adj = np.maximum(std, 1.0/np.sqrt(size))
-    y = (x - mean) / std_adj
+    y=tf.image.per_image_standardization(x)
     return y
 
 def l2_normalize(x, axis=-1, epsilon=1e-10):
@@ -142,7 +135,7 @@ def calc_dist(img0, img1):
     return distance.euclidean(img0, img1)
 
 
-# In[74]:
+# In[4]:
 
 
 #pre definied varaiables
