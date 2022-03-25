@@ -1,147 +1,32 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[9]:
 
 
 #import libraries
-import tensorflow as tf
-import numpy as np
-import cv2
-import copy
-import PIL
-import pickle
-import time 
-import scipy
-from scipy import stats
-import matplotlib.pyplot as plt
-import os
-###################
-################
-from sklearn.decomposition import PCA
-from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d import proj3d
-from imageio import imread
-from skimage.transform import resize
 from scipy.spatial import distance
-from keras.models import load_model
+import pickle
+###########################
+import mediapipe as mp
+##########################
+import cv2
+import numpy as np
+import insightface
+from insightface.app import FaceAnalysis
+import time
 
 
-# In[2]:
+# In[10]:
 
 
-#load FaceNet model
-FaceNet=tf.keras.models.load_model('facenet_keras.h5',compile=False)
+# load mediapipe 
+mp_facedetector = mp.solutions.face_detection
+detector=mp_facedetector.FaceDetection(min_detection_confidence=0.7)
 
-#load trained YOLO model
-config_path = "yolov4-tiny.cfg"
-weights_path = "yolov4-tiny_2000.weights"
-YOLO = cv2.dnn.readNetFromDarknet(config_path, weights_path)
-ln = YOLO.getLayerNames()
-ln = [ln[i - 1] for i in YOLO.getUnconnectedOutLayers()]
-
-#specifiy the image size
-image_size = 160
-
-
-# In[3]:
-
-
-def prewhiten(x):
-    #predefine some varabiles
-    y=tf.image.per_image_standardization(x)
-    return y
-
-def l2_normalize(x, axis=-1, epsilon=1e-10):
-    #l2 normalization
-    output = x / np.sqrt(np.maximum(np.sum(np.square(x), axis=axis, keepdims=True), epsilon))
-    return output
-
-def load_and_align_images(img,margin):
-    #to fix the bug of no detection
-    nms_boxes=[[0,0,0,0]]
-    
-    #empty the buffers
-    boxes, confidences, class_ids,names, aligned_images = [], [], [], [], []
-
-    #keep the original height and width, Caffe model require resizing to 300*300
-    h, w = img.shape[:2]
-    blob = cv2.dnn.blobFromImage(img, 1/255, (160, 160), swapRB=True, crop=False)
-
-    #pass the image to the model
-    YOLO.setInput(blob)
-
-    #extract
-    faces = YOLO.forward(ln)
-    
-    # loop over each of the layer outputs
-    for output in faces:
-        # loop over each of the object detections
-        for detection in output:
-            # extract the confidence (as a probability) the current object detection
-            confidence = detection[5]
-            # discard weak predictions by ensuring the detected
-            # probability is greater than the minimum probability
-            if confidence > CONFIDENCE:
-                # scale the bounding box coordinates back relative to the
-                # size of the image, keeping in mind that YOLO actually
-                # returns the center (x, y)-coordinates of the bounding
-                # box followed by the boxes' width and height
-                box = detection[:4] * np.array([w, h, w, h])
-                (centerX, centerY, width, height) = box.astype("int")
-
-                # use the center (x, y)-coordinates to derive the top and
-                # and left corner of the bounding box
-                x = int(centerX - (width / 2))
-                y = int(centerY - (height / 2))
-                x,y,width,height=abs(x)+2,abs(y)+2,abs(width)+2,abs(height)+2
-                
-                # update our list of bounding box coordinates, confidences
-                boxes.append([x, y, int(width), int(height)])
-                confidences.append(float(confidence))
-                
-    # perform the non maximum suppression given the scores defined before
-    idxs = cv2.dnn.NMSBoxes(boxes, confidences, SCORE_THRESHOLD, IOU_THRESHOLD)
-    
-    #loop over the suppressed boxes
-    if(len(idxs)>0):
-        nms_boxes=[]
-        for i in idxs.flatten():
-            x, y = boxes[i][0], boxes[i][1]
-            w, h = boxes[i][2], boxes[i][3]
-            #append new suppressed boxes to draw it
-            nms_boxes.append([x, y, int(w), int(h)])
-            face_cropped=img[y:y+h,x:x+w]
-            aligned = resize(face_cropped, (image_size, image_size), mode='reflect')
-            aligned_images.append(aligned)
-    return np.array(aligned_images), nms_boxes
-
-def calc_embs(img, margin=10, batch_size=1):
-    cropped_images, boxes=load_and_align_images(img, margin)
-    #to fix the bug of no detection
-    if(cropped_images.shape[0]!=0):
-        aligned_images = prewhiten(cropped_images)
-        embs = []
-        #calculate the emeddings
-        for start in range(0, len(aligned_images), batch_size):
-            pd=FaceNet.predict_on_batch(aligned_images[start:start+batch_size])
-            embs.append(l2_normalize(pd))
-    else:
-        embs=[np.zeros((128,1))]
-    return embs, boxes
-
-def calc_dist(img0, img1):
-    #calculate the distances
-    return distance.euclidean(img0, img1)
-
-
-# In[4]:
-
-
-#pre definied varaiables
-CONFIDENCE = 0.5
-SCORE_THRESHOLD = 0.5
-IOU_THRESHOLD = 0.4
+#load insight project
+app = FaceAnalysis(name='buffalo_sc',providers=['CPUExecutionProvider'])
+app.prepare(ctx_id=0, det_size=(160, 160))
 
 #load ref embeddings
 ref_embeddings=np.load('ref_embeddings.npy')
@@ -150,48 +35,103 @@ ref_embeddings=np.load('ref_embeddings.npy')
 with open('ref_embeddings_names.pkl', 'rb') as f:
     ref_embeddings_names = pickle.load(f)
 
+
+# In[11]:
+
+
+#performance and accuracy configurations
+refresh_period=1
+thersold_value=26
+
 # define a video capture object
 vid = cv2.VideoCapture(0)
 
-#define a timer to measure the performance
-start_time=time.time()
-
+#start the program
 while(True):
+    #empty the buffers
+    names_tracking=[]
+    
     # Capture the video frame by frame    
-    ret, frame = vid.read()
+    _, frame = vid.read()
     
-    #calculate the embeddings and boxes
-    embeddings,boxes=calc_embs(frame)
+    #get the box and embeddings
+    faces=app.get(frame)
     
-    #loop over every embedding to calculate the distances
-    for i,embedding in enumerate(embeddings):
-        distances=[]
-        for j in range(len(ref_embeddings)):
-            dist=calc_dist(embedding,ref_embeddings[j])
-            distances.append(dist)
-
+    if faces:
+        for i in range(len(faces)):
+            #select a face
+            face=faces[i]
+            #empty the buffer
+            distances=[]
+            #calculate the distance
+            for ref_embedding in ref_embeddings:
+                dist=distance.euclidean(face.embedding,ref_embedding)
+                distances.append(dist)
+            print(distances)
             #choose the minimum distance and user
-            thersold_value=1
             indexes=np.argmin(distances)
-            decision_value=distances[indexes]    
+            decision_value=distances[indexes]
+            #decide which user or unknown
             if decision_value > thersold_value:
                 name='Unknown'
+                names_tracking.append(name)
             else:      
                 name=ref_embeddings_names[indexes]
+                names_tracking.append(name)
+                
+#             #draw the frame
+#             frame = app.draw_on(frame, faces)
+#             cv2.putText(frame, name, (int(face.bbox[0])+20, int(face.bbox[1]) - 5), cv2.FONT_HERSHEY_SIMPLEX,0.6, (0,0,255), 2)
 
-            #draw the frame
-            x, y = boxes[i][0], boxes[i][1]
-            w, h = boxes[i][2], boxes[i][3]
-            cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2,)          
-            cv2.putText(frame, name, (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX,0.5, (255,0,0), 2)
+#     #measure the performance
+#     cv2.putText(frame, str(int(1/(time.time()-start_time))), (0, 25), cv2.FONT_HERSHEY_SIMPLEX,1, (255,0,0), 2)
+#     start_time=time.time()
 
-    #measure the performance
-    cv2.putText(frame, str(int(1/(time.time()-start_time))), (0, 25), cv2.FONT_HERSHEY_SIMPLEX,1, (255,0,0), 2)
-    start_time=time.time()
+#     #Display the resulting frame
+#     cv2.imshow('frame', frame)
+    
+    #track the faces
+    entry_names=len(names_tracking)
+    #start the software timer
+    software_timer=time.time()
+    while(True):
+        #empty the buffers
+        nms_boxes=[]
+        #measure the performance
+        start_time=time.time()
+        #detection using mediapipe
+        #capture frame
+        _, frame = vid.read()
+        # Convert the BGR image to RGB
+        image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Process the image and find faces
+        results = detector.process(image)
+        # Convert the image color back so it can be displayed
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        if results.detections:
+            for id, detection in enumerate(results.detections):
+                bBox = detection.location_data.relative_bounding_box
+                h, w, c = image.shape
+                x,y,w,h=abs(int(bBox.xmin * w)), abs(int(bBox.ymin * h)-30), abs(int(bBox.width * w)), abs(int(bBox.height * h)+30)
+                nms_boxes.append([x, y, int(w), int(h)])
+        if entry_names!=len(nms_boxes) or (time.time()-software_timer)>refresh_period:
+            print('breaked')
+            break
+        else:
+            for i in range(len(nms_boxes)):
+                x, y = nms_boxes[i][0], nms_boxes[i][1]
+                w, h = nms_boxes[i][2], nms_boxes[i][3]
+                cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2,)          
+                cv2.putText(frame, names_tracking[i], (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX,0.5, (255,0,0), 2)
+        #measure the performance
+        cv2.putText(frame, str(int(1/(time.time()-start_time))), (0, 25), cv2.FONT_HERSHEY_SIMPLEX,1, (255,0,0), 2)
+        #Display the resulting frame
+        cv2.imshow('frame', frame)
 
-    # Display the resulting frame
-    cv2.imshow('frame', frame)
-
+        # the 'q' button is set as the
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+            
     # the 'q' button is set as the
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
@@ -200,12 +140,6 @@ while(True):
 vid.release()
 # Destroy all the windows
 cv2.destroyAllWindows()
-
-
-# In[5]:
-
-
-plt.imshow(dummy2)
 
 
 # In[ ]:
