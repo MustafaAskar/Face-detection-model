@@ -19,5 +19,6 @@ using YOLO and FaceNet built on Inception V1, avg FPS~11.
 to generate ref embeddings you need to put the images both in the ref folder AND one directory up it (right next to the model files)
 
 # version 3
-used face tracking algorithm instead of running face recognition all the time which gave a really big boost in performancec the code now achieves 27~29 fps on RP3
+used face tracking algorithm instead of running face recognition all the time which gave a really big boost in performancec the code now achieves 27~29 fps on RP3 and 45 on i5-7500U without charger
+used insightface project bufflo_sl based on mobilefacenet for both detection and trained with ArcFace for recognition
 fixed the ref embeddings code, now you need to put the images in ref_images folder and name them with each individual name ex (mustafa.jpg) and run the code
